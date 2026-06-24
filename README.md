@@ -3,90 +3,109 @@
 **B.Tech Capstone Project — Indian Institute of Technology Ropar**
 **Authors:** Harsh Srova (2018CSB1095) · Guzzarlapudi Stephen Sugun (2018CSB1225)
 **Supervisor:** Dr. Shweta Jain, Department of Computer Science & Engineering
-**Submitted:** April 2022
+**April 2022**
 
 ---
 
 ## Overview
 
-Cloud infrastructure demand is growing at an unprecedented rate, with the global market projected to nearly double from $445B to $947B by 2026 (CAGR 16.3%). As user bases surge — exemplified by Zoom's 326% user growth and Microsoft Teams adding 44 million users during COVID-19 — cloud providers need reliable, low-error workload prediction to enable **dynamic resource scaling** and **efficient energy management**.
+This project addresses cloud server workload prediction using the **Transformer model** (vanilla architecture from "Attention Is All You Need"), applied to the NASA HTTP server log dataset. The goal is to enable **dynamic resource scaling** and **efficient energy management** in cloud systems by accurately forecasting future workloads.
 
-This project addresses cloud server workload prediction using the **Transformer architecture**, benchmarked against the widely-used LSTM model on the NASA HTTP server log dataset. The Transformer consistently outperforms LSTM across all tested prediction window sizes, achieving a best MSE of **2.95 × 10⁻³**.
+We compare Transformer-based models against Long Short-Term Memory (LSTM) networks, demonstrating that Transformers achieve lower prediction error, faster training, and faster inference — making them better suited for this time-series forecasting task.
+
+**Best result: MSE of 2.95 × 10⁻³** (Transformer on seconds dataset, PWS = 60)
 
 ---
 
 ## Motivation
 
-Two core problems drive the need for accurate workload prediction:
+Cloud demand is growing at a CAGR of 16.3%, projected to reach $947 billion by 2026. As user counts scale, cloud systems must dynamically provision resources to maintain Quality of Service. Accurate workload prediction enables:
 
-**Dynamic Resource Scaling** — Cloud servers must maintain consistent Quality of Service (QoS) across varying user loads and times of day. Accurate prediction enables proactive resource allocation rather than reactive scaling.
-
-**Efficient Energy Management** — Over-provisioned servers waste energy and cost. Accurate forecasts allow servers to run lean, reducing operational costs and environmental footprint.
+- **Dynamic resource scaling** — allocate resources proportionally to real-time demand
+- **Efficient energy management** — reduce unnecessary power consumption and operating costs
 
 ---
 
 ## Approach
 
-### Model: Vanilla Transformer (Encoder-Decoder)
+### Model: Vanilla Transformer
 
-The project applies the vanilla Transformer architecture from "Attention Is All You Need" (Vaswani et al., 2017) to time-series workload forecasting. Key properties:
+The model follows the encoder-decoder architecture from Vaswani et al. (2017):
 
-- **Self-attention** captures long-range temporal dependencies that LSTMs struggle with due to the vanishing gradient problem.
-- **Multi-head attention** runs parallel attention blocks across multiple cores, enabling faster training and inference compared to sequential LSTM processing.
-- **Sin-cos positional encoding** is applied to the input before feeding it into the encoder, preserving temporal order information.
+```
+Input Workload
+      │
+      ▼
+Input Embedding + Positional Encoding
+      │
+      ▼
+ ┌─────────────┐
+ │   Encoder   │  (Multi-Head Self-Attention → Feed Forward) × N layers
+ └──────┬──────┘
+        │
+        ▼
+ ┌─────────────┐
+ │   Decoder   │  (Masked MHA → Multi-Head Attention → Feed Forward) × N layers
+ └──────┬──────┘
+        │
+        ▼
+  Linear + Softmax
+        │
+        ▼
+ Predicted Workload (next timestep)
+```
 
-The encoder processes the historical workload sequence; the decoder autoregressively predicts the next timestep's workload using previously predicted outputs.
+The decoder is auto-regressively fed previously predicted outputs alongside encoder context to generate future workload probabilities.
 
-### Why Transformers Beat LSTMs Here
+### Key Improvements Over Prior Work
 
-LSTMs suffer from the **vanishing gradient problem** — as network depth increases, early-sequence information degrades, harming long-range predictions. Transformers avoid this entirely through direct attention over all timesteps, and their parallelism means they train faster on the same hardware.
-
----
-
-## Dataset
-
-**NASA HTTP Server Log Dataset** — 3.26 million data points with fields: Host, Time, Method, Response, URL, Bytes.
-
-Preprocessing steps:
-- Extracted a `load` attribute: number of user requests arriving per unit time.
-- Split into two temporal granularities:
-  - **Seconds dataset** — finer-grained, larger, trains a more accurate model.
-  - **Minutes dataset** — coarser-grained, smaller, slightly higher error.
-
-**Train/test split:** 60% training / 40% testing.
+- **Cyclic temporal modelling** applied to capture inherent cyclical/periodic patterns in the dataset
+- **Dataset normalization** for more stable and efficient training
+- **Hyperparameter tuning** (batch size, learning rate) to find the optimal configuration
+- **Reduced layer depth** — empirically found that a single encoder/decoder layer minimizes error due to the vanishing gradient problem on this dataset size
 
 ---
 
 ## Technology Stack
 
-| Component | Tool |
-|-----------|------|
-| Language | Python |
-| Deep Learning | PyTorch |
-| Visualization | Matplotlib |
-| Data Processing | Pandas, NumPy |
-| Training Hardware | Google Colab (1× Tesla K80, 12 GB GDDR5, 2496 CUDA cores) |
+| Language | Frameworks / Libraries |
+|----------|------------------------|
+| Python | PyTorch, NumPy, Pandas, Matplotlib |
 
 ---
 
-## Hyperparameters
+## Dataset
+
+**NASA HTTP Server Log** — publicly available server access log dataset.
+
+- **Raw size:** 3.26 million data points
+- **Attributes:** Host, Time, Method, Response, URL, Bytes
+- **Preprocessing:** Extracted a `load` attribute (number of user requests per unit time), then split into two temporal granularities:
+  - **Seconds dataset** — unit time = 1 second
+  - **Minutes dataset** — unit time = 1 minute
+- **Train/test split:** 60% training / 40% testing
+
+---
+
+## Experiments & Hyperparameters
 
 | Parameter | Value |
 |-----------|-------|
 | Batch size | 50 |
 | Learning rate | 0.005 |
 | Training Window Size (TWS) | 100 |
-| Prediction Window Size (PWS) | 1, 5, 10, 20, 30, 60 |
-| Optimal number of layers | 1 |
+| Prediction Window Sizes (PWS) tested | 1, 5, 10, 20, 30, 60 |
 | Loss function | Mean Squared Error (MSE) |
+| Training hardware | Google Colab — Tesla K80 GPU (12 GB GDDR5), Xeon CPU @ 2.3 GHz |
 
-**Key finding on layers:** A single encoder-decoder layer dramatically outperforms deeper configurations. Adding layers (2–5) causes MSE to jump from ~3 × 10⁻³ to ~68 × 10⁻³ due to the vanishing gradient problem compounding with the relatively small dataset size.
+**PWS** = number of previous timesteps used as input to predict the next workload value.
+**TWS** = number of previous timesteps used during training.
 
 ---
 
 ## Results
 
-### Transformer vs. LSTM — MSE by Prediction Window (×10⁻³)
+### Transformer vs. LSTM (MSE × 10⁻³)
 
 | PWS | Transformer (seconds) | Transformer (minutes) | LSTM |
 |-----|----------------------|-----------------------|------|
@@ -95,37 +114,27 @@ Preprocessing steps:
 | 10  | 2.29 | 3.52 | 6.66  |
 | 20  | 2.15 | 3.12 | 7.01  |
 | 30  | 2.05 | 3.01 | 6.43  |
-| 60  | **1.89** | **2.95** | 5.59 |
+| 60  | **1.89** | **2.95** | 5.59  |
 
-The Transformer (seconds) achieves the best result at **MSE = 1.89 × 10⁻³** (PWS=60), compared to LSTM's best of 4.79 × 10⁻³ — roughly **2.5× lower error**.
+Transformers consistently outperform LSTMs across all PWS values. The seconds dataset outperforms the minutes dataset due to its larger size enabling better generalization.
 
-The seconds dataset consistently outperforms the minutes dataset because its larger size gives the model more training signal.
+### Effect of Number of Layers (MSE × 10⁻³, minutes dataset)
 
-### MSE by Number of Transformer Layers (×10⁻³, minutes dataset, PWS=60)
+| PWS | Layers = 1 | Layers = 2 | Layers = 3 | Layers = 4 | Layers = 5 |
+|-----|-----------|-----------|-----------|-----------|-----------|
+| 1   | **3.30**  | 68.58 | 68.72 | 68.55 | 68.62 |
+| 60  | **2.62**  | 63.68 | 63.78 | 63.66 | 63.71 |
 
-| Layers | MSE |
-|--------|-----|
-| 1 | **2.62** |
-| 2 | 63.68 |
-| 3 | 63.78 |
-| 4 | 63.66 |
-| 5 | 63.71 |
-
-Deeper models collapse in performance — a clear signal to keep the architecture shallow for this dataset size.
-
----
-
-## Key Improvements Over Prior Work
-
-**Accuracy:** Hyperparameter tuning (batch size, learning rate), dataset normalization, and cyclic temporal modelling to capture inherent periodic patterns in server load. This helps the model identify long-term trends more effectively.
-
-**Speed:** Reduced the number of layers after observing that deeper models both increase error and slow training due to vanishing gradients. Transformer's native parallelism in multi-head attention further speeds up computation relative to sequential LSTM processing.
+A single-layer transformer dramatically outperforms deeper variants. Increasing depth causes severe vanishing gradient degradation on this dataset size, pushing error ~20× higher.
 
 ---
 
 ## Conclusions
 
-Transformers outperform LSTMs for cloud workload time-series prediction across all tested prediction window sizes, delivering lower prediction error, faster training, and faster inference. A single-layer Transformer trained on second-level granularity data achieves the best results. These findings support the adoption of Transformer-based forecasting for dynamic cloud resource scaling and energy-efficient infrastructure management.
+- Transformer models outperform LSTMs for cloud workload time-series prediction in terms of accuracy, training speed, and inference speed.
+- A **single-layer transformer** is optimal for this dataset — deeper models suffer from vanishing gradients.
+- Longer prediction window sizes (higher PWS) consistently reduce error as the model captures more temporal context.
+- The approach can meaningfully improve cloud resource efficiency and reduce energy costs.
 
 ---
 
@@ -134,26 +143,20 @@ Transformers outperform LSTMs for cloud workload time-series prediction across a
 ```
 .
 ├── data/
-│   ├── nasa_http_log/          # Raw NASA HTTP server log dataset
-│   ├── seconds_dataset.csv     # Preprocessed per-second workload
-│   └── minutes_dataset.csv     # Preprocessed per-minute workload
+│   ├── raw/                  # NASA HTTP server log (raw)
+│   └── processed/            # Seconds and minutes datasets after preprocessing
 │
 ├── src/
-│   ├── preprocess.py           # Data loading, load feature extraction, normalization
-│   ├── model.py                # Vanilla Transformer (encoder-decoder) in PyTorch
-│   ├── train.py                # Training loop, hyperparameter configuration
-│   └── evaluate.py             # MSE computation and comparison vs. LSTM baseline
-│
-├── notebooks/
-│   └── experiments.ipynb       # Google Colab notebook with full experiment runs
+│   ├── preprocess.py         # Data loading, cleaning, load attribute extraction
+│   ├── model.py              # Vanilla Transformer architecture (PyTorch)
+│   ├── train.py              # Training loop, hyperparameter configuration
+│   └── evaluate.py           # MSE evaluation and result plots
 │
 ├── results/
-│   ├── mse_comparison.png      # Transformer vs. LSTM MSE plot
-│   └── mse_by_layers.png       # MSE vs. number of layers plots
+│   ├── mse_comparison.png    # Transformer vs LSTM MSE chart
+│   └── layers_comparison.png # MSE by number of layers
 │
-├── report/
-│   └── Cloud_Workload_Prediction.pdf
-│
+├── Cloud_Workload_Prediction.pdf   # Full project report
 └── README.md
 ```
 
@@ -161,11 +164,10 @@ Transformers outperform LSTMs for cloud workload time-series prediction across a
 
 ## References
 
-- Vaswani, A. et al. (2017). Attention Is All You Need. *NeurIPS 2017*.
-- Kumar, J., Goomer, R., & Singh, A.K. (2017). LSTM-RNN Based Workload Forecasting Model for Cloud Datacenters. *ICSCC 2017*.
-- Guhr, O. (2021). Transformer Time-Series Prediction. GitHub.
-- Klingenbrunn, N. (2021). Transformers for Time-Series Forecasting. Medium / GitHub.
-- Svensson, L. (2020). Self-Attention — An Introduction. Chalmers University.
+- Vaswani, A. et al. (2017). *Attention Is All You Need.* NeurIPS 2017.
+- Kumar, J. et al. (2017). *LSTM-RNN Based Workload Forecasting Model for Cloud Datacenters.* ICSCC 2017.
+- Guhr, O. (2021). [Transformer Time-Series Prediction](https://bit.ly/3M2mZGs). GitHub.
+- Klingenbrunn, N. (2021). [Transformers for Time-Series Forecasting](https://bit.ly/3yo1uMq). Medium.
 
 ---
 
